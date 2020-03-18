@@ -8,8 +8,6 @@ namespace Blanket
 {
     class Program
     {
-        static uint[] ImportantSection;
-
         static readonly string[] Paths = new string[]
         {
             "main",
@@ -20,8 +18,23 @@ namespace Blanket
         };
         static void Main(string[] args)
         {
-            string root = "B:/Downloads/";
+            if(args.Length == 0)
+            {
+                Console.WriteLine("Provide a path to the save directory.");
+                return;
+            }
+            string root = args[0];
             DirectoryInfo rootDir = new DirectoryInfo(root);
+
+            if(!rootDir.Exists)
+            {
+                FileInfo test = new FileInfo(root);
+                if (test.Exists)
+                    Console.WriteLine($"{test.FullName} is not a directory.");
+                else
+                    Console.WriteLine($"{rootDir.FullName} doesn't exist.");
+                return;
+            }
 
             foreach(string f in Paths)
             {
@@ -33,45 +46,15 @@ namespace Blanket
                 Console.WriteLine($"Decrypting {f}...");
                 FileInfo header = rootDir.GetFile($"{f}Header.dat");
 
-                byte[] headerData = header.ReadAll();
-                int importantSectionCount = (headerData.Length - 0x100) / sizeof(uint);
-                ImportantSection = headerData.Skip(0x100)
-                    .Split(sizeof(uint), importantSectionCount)
-                    .Select(x => x.ToUInt32()).ToArray();
+                SaveFile save = new SaveFile(f, file.ReadAll(), header.ReadAll());
 
-                byte[] key = GenKey(0);
-                Console.WriteLine($"Key: {key.ToHexString()}");
-                byte[] iv = GenKey(2);
-                Console.WriteLine($"IV: {iv.ToHexString()}");
+                Console.WriteLine($"Key: {save.Key.ToHexString()}");
+                Console.WriteLine($"IV: {save.IV.ToHexString()}");
 
-                byte[] fileData = file.ReadAll();
-                byte[] dec = Decrypt(fileData, key, iv);
-                rootDir.GetFile($"{f}.dec").WriteAll(dec);
+                rootDir.GetFile($"{f}.dec").WriteAll(save.Data);
+
+                save.UpdateCrc();
             }
-        }
-
-        static byte[] GenKey(int s)
-        {
-            uint tickCount = ImportantSection[ImportantSection[s + 1] & 0x7F] & 0xF;
-            tickCount++;
-            SeadRandom random = new SeadRandom(ImportantSection[ImportantSection[s] & 0x7F]);
-            for (int i = 0; i < tickCount; i++)
-                random.GetU64();
-
-            byte[] key = new byte[0x10];
-            for(int i = 0; i < 0x10; i++)
-                key[i] = (byte)((random.GetU32() >> 24) & 0xFF);
-
-            return key;
-        }
-
-        static byte[] Decrypt(byte[] data, byte[] key, byte[] iv)
-        {
-            Aes128CounterMode am = new Aes128CounterMode(iv);
-            ICryptoTransform ict = am.CreateDecryptor(key, iv);
-            byte[] dec = new byte[data.Length];
-            ict.TransformBlock(data, 0, data.Length, dec, 0);
-            return dec;
         }
     }
 }
